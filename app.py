@@ -1,43 +1,65 @@
 from flask import Flask, request, jsonify
 import requests
+import os
+from dotenv import load_dotenv
 
+# 🔐 Load environment variables from .env file (local) or system env (Render etc.)
+load_dotenv()
+
+# ✅ Flask app
 app = Flask(__name__)
 
-# ✅ Apna Bitrix webhook URL yaha dalna
-BITRIX_WEBHOOK_URL = "https://dubaivisa.bitrix24.com/rest/4914/uoux77ofw08qt0sc/crm.lead.add.json"
+# ✅ Get Bitrix webhook URL from environment variable
+BITRIX_WEBHOOK_URL = os.getenv("BITRIX_WEBHOOK_URL")
+
+# ❗ Safety check: Warn if webhook URL is not set
+if not BITRIX_WEBHOOK_URL:
+    raise ValueError("❌ BITRIX_WEBHOOK_URL is not set. Please check your environment variables.")
+
+@app.route("/")
+def home():
+    return "✅ Flask app is running!"
 
 @app.route("/collectchat", methods=["POST"])
 def collectchat():
-    data = request.json  # Collect.chat se JSON input
+    try:
+        data = request.json  # JSON input from Collect.chat
 
-    # Debug ke liye incoming data print karte hain
-    print("Received from Collect.chat:", data)
+        print("📩 Received from Collect.chat:", data)  # For debug logs
 
-    # ✅ Collect.chat ke fields ko Bitrix ke fields me map karna
-    payload = {
-        "fields": {
-            "TITLE": "Lead from Collect.chat",
-            "NAME": data.get("name", ""),
-            "LAST_NAME": data.get("last_name", ""),
-            "EMAIL": [
-                {"VALUE": data.get("email", ""), "VALUE_TYPE": "WORK"}
-            ],
-            "PHONE": [
-                {"VALUE": data.get("phone", ""), "VALUE_TYPE": "WORK"}
-            ]
+        # ✅ Mapping Collect.chat data to Bitrix24 lead fields
+        payload = {
+            "fields": {
+                "TITLE": "Lead from Collect.chat",
+                "NAME": data.get("name", ""),
+                "LAST_NAME": data.get("last_name", ""),
+                "EMAIL": [
+                    {"VALUE": data.get("email", ""), "VALUE_TYPE": "WORK"}
+                ],
+                "PHONE": [
+                    {"VALUE": data.get("phone", ""), "VALUE_TYPE": "WORK"}
+                ]
+            }
         }
-    }
 
-    # ✅ Bitrix24 API ko POST request bhejna
-    response = requests.post(BITRIX_WEBHOOK_URL, json=payload)
+        # ✅ Send to Bitrix24 CRM
+        response = requests.post(BITRIX_WEBHOOK_URL, json=payload)
+        bitrix_response = response.json()
 
-    return jsonify({
-        "status": "ok",
-        "collectchat_data": data,
-        "bitrix_response": response.json()
-    })
+        # 🧾 Return response to client
+        return jsonify({
+            "status": "success",
+            "data_received": data,
+            "bitrix_response": bitrix_response
+        }), response.status_code
 
+    except Exception as e:
+        # ❌ If something goes wrong
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
+# ✅ Only used in local development (not in Render)
 if __name__ == "__main__":
-    # Local testing ke liye
     app.run(host="0.0.0.0", port=5000, debug=True)
